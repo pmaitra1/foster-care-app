@@ -1,0 +1,76 @@
+{
+  "expo": {
+    "name": "Street Foster",
+    "slug": "street-foster",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "streetfoster",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
+  "ios": {
+  "supportsTablet": false,
+  "bundleIdentifier": "com.streetfoster.app",
+  "config": {
+    "googleMapsApiKey": "your-key-here"
+  },
+  "infoPlist": {
+    "NSCameraUsageDescription": "Street Foster uses your camera to photograph animals.",
+    "NSPhotoLibraryUsageDescription": "Street Foster saves animal photos to your photo library.",
+    "NSLocationWhenInUseUsageDescription": "Street Foster uses your location to pin animals on the map.",
+    "NSLocationAlwaysAndWhenInUseUsageDescription": "Street Foster uses your location to pin animals on the map."
+  }
+},
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#FFFFFF"
+      },
+      "package": "com.streetfoster.app",
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#E53E3E",
+          "sounds": []
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Street Foster uses your location to drop a map pin for each animal."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Street Foster needs camera access to photograph animals."
+        }
+      ],
+      "expo-font"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
