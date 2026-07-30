@@ -1,9 +1,9 @@
 # Handoff Notes — Street Foster App
 
-This document is for the developer taking over this project. It covers what's
-already built, what to watch out for, and repo hygiene actions that were taken
-right before handoff. Read this alongside [README.md](./README.md) (setup +
-tech stack) and `supabase/migrations/001_initial_schema.sql` (DB schema).
+This document is for the developer taking over this project. It covers
+what's already built, what to watch out for, and where to start. Read this
+alongside [README.md](./README.md) (setup + tech stack) and
+`supabase/migrations/001_initial_schema.sql` (DB schema).
 
 ---
 
@@ -33,37 +33,25 @@ tech stack) and `supabase/migrations/001_initial_schema.sql` (DB schema).
 - Google Maps colour-coded pins on the home map tab beyond current basic pins.
 - Android build/testing (project has been developed and tested iOS-first).
 - Multi-volunteer auth + Supabase Row Level Security (RLS is currently wide
-  open — every table has an "Allow all" policy; see §5 below).
+  open — every table has an "Allow all" policy; see §4 below).
 - Web version, colony-level reporting.
 
-## 3. Repo hygiene — what changed right before handoff
+## 3. Environment variables & secrets
 
-- Deleted `node_modules_old_sdk51/` (an 869MB untracked leftover backup from
-  a past Expo SDK upgrade — see §4 for why it existed). It was never needed
-  at runtime; if you ever see a similar `*_old_sdk*` folder reappear, it's
-  safe to delete after confirming `npm install` still works from the current
-  `node_modules`.
-- `node_modules/` was previously **committed to git** (45k+ files) despite
-  being listed in `.gitignore` — it had been added before the ignore rule
-  existed. It has now been untracked with `git rm -r --cached node_modules`.
-  **You must commit this** (`git commit -m "Untrack node_modules"`) to finish
-  the cleanup — the files remain on disk, only git's tracking was affected.
-- `.env` and `.env.local` were also committed to git. They've been untracked
-  the same way and added to `.gitignore`. **Commit this too.** An
-  `.env.example` template (no real secrets) now exists for new setups.
+- Copy `.env.example` to `.env.local` and fill in your own Supabase and
+  Google Maps keys (see README setup steps). `.env`, `.env.local`,
+  `node_modules/`, and the native `ios/`/`android/` folders are all
+  gitignored — never commit real keys.
+- The Supabase key used client-side is the **anon** key, which is designed
+  to be public in a mobile app and is protected by Row Level Security (RLS)
+  — see §4 below on the current (permissive) RLS state.
+- General practice: if any API key is ever accidentally committed, treat it
+  as compromised and rotate it immediately in the relevant provider console
+  (e.g. [Google Cloud Console](https://console.cloud.google.com) for Google
+  Maps, Supabase dashboard → Settings → API for Supabase keys) — removing it
+  from a future commit doesn't undo prior exposure.
 
-## 4. Security note — rotate the Google Maps API key
-
-The committed `.env`/`.env.local` contained a real Google Maps API key and
-the Supabase anon key. The Supabase anon key is designed to be public in a
-client app (protected by RLS — though see §5, RLS isn't actually restrictive
-yet), but the **Google Maps key should be rotated** in the
-[Google Cloud Console](https://console.cloud.google.com) since it's exposed
-in git history (untracking going forward does not remove it from past
-commits — that would require a history rewrite, which was intentionally not
-done here to avoid disrupting shared history without sign-off).
-
-## 5. Known gotchas / tribal knowledge
+## 4. Known gotchas / tribal knowledge
 
 - **RLS is currently permissive**: every table has an `Allow all` policy (see
   `supabase/migrations/001_initial_schema.sql`). Fine for a single-volunteer
@@ -100,13 +88,10 @@ done here to avoid disrupting shared history without sign-off).
   `node_modules` out of the way, delete `package-lock.json`, then
   `npm install` fresh.
 
-## 6. Suggested first tasks for the new developer
+## 5. Suggested first tasks for the new developer
 
-1. `git commit` the untracking changes from §3, then rotate the Google Maps
-   key (§4).
-2. Verify `npx expo start` + `npx expo start --ios` still work locally after
-   the git index changes (no files were touched on disk, so this should be a
-   no-op, but confirm).
-3. Read through `supabase/migrations/001_initial_schema.sql` to understand
+1. Set up `.env.local` from `.env.example` (§3) and confirm `npx expo start`
+   / `npx expo start --ios` run locally.
+2. Read through `supabase/migrations/001_initial_schema.sql` to understand
    the 5-table schema before making DB changes.
-4. Decide on an RLS strategy before onboarding a second volunteer/user.
+3. Decide on an RLS strategy before onboarding a second volunteer/user.

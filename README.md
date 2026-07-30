@@ -9,8 +9,8 @@ A mobile-first app for tracking community dogs across Delhi's colonies. Built wi
 | Layer | Technology | Why |
 |---|---|---|
 | Mobile (iOS + Android) | React Native + Expo | Single codebase, iOS-first, scales to Android & web |
-| Navigation | Expo Router (file-based) | Industry standard, great for resume |
-| Backend & Database | Supabase (PostgreSQL) | Real SQL, offline sync, open-source — impressive on resume |
+| Navigation | Expo Router (file-based) | File-based routing, minimal boilerplate |
+| Backend & Database | Supabase (PostgreSQL) | Relational schema with foreign keys, built-in storage & auth |
 | Auth (Phase 2) | Supabase Auth | Built-in, row-level security for multi-volunteer |
 | Maps (Phase 2) | react-native-maps + Google Maps API | |
 | Push Notifications | expo-notifications | Local + remote |
