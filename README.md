@@ -151,12 +151,3 @@ See `supabase/migrations/001_initial_schema.sql` for full schema with constraint
 - [ ] Web / laptop version (Expo web)
 - [ ] Advanced reporting & colony statistics
 
----
-
-## Resume-worthy aspects of this stack
-
-- **Supabase**: Real PostgreSQL with relational schema, foreign keys, indexes, row-level security — not a toy NoSQL database
-- **React Native + Expo**: Used at Meta, Shopify, Discord, Coinbase — genuinely cross-platform
-- **Expo Router**: File-based routing (like Next.js but for mobile) — modern pattern
-- **TypeScript throughout**: Strict types mirroring the DB schema
-- **Offline-first design**: Field app requirement — shows you understand real-world constraints
