@@ -24,21 +24,25 @@ A mobile-first app for tracking community dogs across Delhi's colonies. Built wi
 
 ```
 StreetFoster/
-├── app/                        # Expo Router screens
+├── app/                        # Expo Router screens (file-based routing)
+│   ├── index.tsx               # Entry redirect
+│   ├── feeders.tsx             # Feeders list screen
 │   ├── tabs/                   # Bottom nav tabs
 │   │   ├── index.tsx           # Home — Map view
-│   │   ├── alerts.tsx          # Alerts tab
-│   │   ├── dogs.tsx            # My Dogs tab
+│   │   ├── alerts.tsx          # Alerts tab (reminders due)
+│   │   ├── dogs.tsx            # My Dogs tab (list + search/filter)
 │   │   └── more.tsx            # More / Settings tab
 │   ├── dog/
-│   │   └── [id].tsx            # Dog detail screen
+│   │   └── [id].tsx            # Dog detail screen — profile, photo gallery,
+│   │                            #   edit modal (incl. GPS/manual location),
+│   │                            #   log update / medical / reminder modals
 │   └── modals/
-│       ├── add-dog.tsx         # Add new dog flow
-│       └── log-update.tsx      # Log health update
+│       └── add-dog.tsx         # Add new dog flow (4-step wizard)
 ├── lib/
 │   ├── supabase/
-│   │   ├── client.ts           # Supabase client setup
+│   │   ├── client.ts           # Supabase client setup (reads EXPO_PUBLIC_* env vars)
 │   │   ├── dogs.ts             # Dog CRUD + category logic
+│   │   ├── feeders.ts          # Feeder CRUD
 │   │   └── records.ts          # Reminders, health updates, medical records
 │   └── utils/
 │       ├── export.ts           # One-tap Excel export
@@ -48,11 +52,14 @@ StreetFoster/
 ├── supabase/
 │   └── migrations/
 │       └── 001_initial_schema.sql   # Full DB schema — run this first
+├── ios/                        # Native iOS project (Pods/build are gitignored)
 ├── .env.example                # Copy to .env.local and fill in keys
 ├── app.json                    # Expo config (permissions, bundle IDs)
 ├── package.json
 └── tsconfig.json
 ```
+
+> **New developer?** See [HANDOFF.md](./HANDOFF.md) for known gotchas, current project state, and repo hygiene notes before you start.
 
 ---
 
