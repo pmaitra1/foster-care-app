@@ -15,12 +15,18 @@ const responseListener = useRef<Notifications.Subscription | null>(null);
 
   useEffect(() => {
     // Schedule notifications and update badge on launch
-    scheduleAllReminderNotifications();
-    updateBadgeCount();
+    scheduleAllReminderNotifications().catch((error) => {
+      console.warn('Initial reminder scheduling failed:', error);
+    });
+    updateBadgeCount().catch((error) => {
+      console.warn('Initial badge update failed:', error);
+    });
 
     // Listen for notifications received while app is open
     notificationListener.current = Notifications.addNotificationReceivedListener(() => {
-      updateBadgeCount();
+      updateBadgeCount().catch((error) => {
+        console.warn('Badge update on notification failed:', error);
+      });
     });
 
     // Handle notification tap — navigate to dog detail

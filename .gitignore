@@ -7,6 +7,10 @@ expo-env.d.ts
 # @end expo-cli
 node_modules
 
+# Native projects (Expo CNG — regenerate with `npx expo prebuild`)
+/ios
+/android
+
 # Environment variables (never commit secrets)
 .env
 .env.local
@@ -14,3 +18,6 @@ node_modules
 
 # macOS
 .DS_Store
+
+# Editor
+.vscode/

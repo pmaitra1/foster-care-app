@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Alert, TextInput,
@@ -249,6 +250,7 @@ const fc = StyleSheet.create({
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function FeedersScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const [feeders, setFeeders] = useState<Feeder[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -301,7 +303,10 @@ export default function FeedersScreen() {
   return (
     <View style={[s.container, { paddingTop: insets.top }]}>
       <View style={s.topbar}>
-        <View>
+        <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+          <Text style={s.backBtnText}>←</Text>
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 10 }}>
           <Text style={s.title}>Feeders</Text>
           <Text style={s.sub}>{feeders.length} caretakers in programme</Text>
         </View>
@@ -377,6 +382,8 @@ const s = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.gray100 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   topbar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: C.white, paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: C.gray200 },
+  backBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.gray100, alignItems: 'center', justifyContent: 'center' },
+  backBtnText: { fontSize: 18, color: C.gray900 },
   searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.white, borderBottomWidth: 1, borderBottomColor: C.gray200, paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
   searchIcon: { fontSize: 14 },
   searchInput: { flex: 1, fontSize: 13, color: C.gray900, padding: 0 },

@@ -6,12 +6,13 @@ import { useEffect, useState, useCallback } from 'react';import {
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase/client';
-import type { Dog, HealthUpdate, MedicalRecord, Reminder, UpdateType, MedicalEventType, ReminderType } from '../../types';
+import type { Dog, DogPhoto, HealthUpdate, MedicalRecord, Reminder, UpdateType, MedicalEventType, ReminderType } from '../../types';
 import { format, parseISO, differenceInMonths, addMonths, addWeeks } from 'date-fns';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import { Image } from 'react-native';
+import * as Location from 'expo-location';
 
 const C = {
   g700: '#1A5C38', g500: '#2D8653', g300: '#4caf78',
@@ -460,22 +461,83 @@ function EditDogModal({ dog, visible, onClose, onSaved }: {
   const [notes, setNotes] = useState(dog.notes ?? '');
   const [saving, setSaving] = useState(false);
 
+  const [locationMode, setLocationMode] = useState<'gps' | 'manual'>('manual');
+  const [latitude, setLatitude] = useState<number | null>(dog.location_latitude ?? null);
+  const [longitude, setLongitude] = useState<number | null>(dog.location_longitude ?? null);
+  const [manualLat, setManualLat] = useState(dog.location_latitude?.toString() ?? '');
+  const [manualLng, setManualLng] = useState(dog.location_longitude?.toString() ?? '');
+  const [locating, setLocating] = useState(false);
+
   // Keep form in sync if dog prop changes
   useEffect(() => {
     setName(dog.name); setGender(dog.gender);
     setDob(dog.date_of_birth ?? ''); setApproxAge(dog.approx_age_months?.toString() ?? '');
     setColony(dog.location_address ?? ''); setFeederPhone(dog.feeder_phone ?? '');
     setStatus(dog.current_status); setNotes(dog.notes ?? '');
+    setLatitude(dog.location_latitude ?? null);
+    setLongitude(dog.location_longitude ?? null);
+    setManualLat(dog.location_latitude?.toString() ?? '');
+    setManualLng(dog.location_longitude?.toString() ?? '');
+    setLocationMode('manual');
   }, [dog]);
+
+  const captureLocation = async () => {
+    setLocating(true);
+    try {
+      const { status: permStatus } = await Location.requestForegroundPermissionsAsync();
+      if (permStatus !== 'granted') {
+        Alert.alert(
+          'Location permission denied',
+          'You can still set the location manually using latitude/longitude.',
+        );
+        setLocationMode('manual');
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      setLatitude(loc.coords.latitude);
+      setLongitude(loc.coords.longitude);
+      setManualLat(loc.coords.latitude.toFixed(6));
+      setManualLng(loc.coords.longitude.toFixed(6));
+      const geo = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      if (geo[0] && !colony) {
+        setColony([geo[0].district, geo[0].subregion, geo[0].city].filter(Boolean).join(', '));
+      }
+    } catch {
+      Alert.alert('Could not get location', 'Check your GPS settings, or enter coordinates manually.');
+      setLocationMode('manual');
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const applyManualCoords = () => {
+    const lat = parseFloat(manualLat);
+    const lng = parseFloat(manualLng);
+    if (isNaN(lat) || isNaN(lng)) { Alert.alert('Invalid coordinates', 'Enter valid numbers.'); return; }
+    if (lat < -90 || lat > 90) { Alert.alert('Invalid latitude', 'Must be between -90 and 90.'); return; }
+    if (lng < -180 || lng > 180) { Alert.alert('Invalid longitude', 'Must be between -180 and 180.'); return; }
+    setLatitude(lat);
+    setLongitude(lng);
+  };
 
   const save = async () => {
     if (!name.trim()) { Alert.alert('Name is required'); return; }
     setSaving(true);
     try {
+      let finalLat = latitude;
+      let finalLng = longitude;
+      if (locationMode === 'manual' && manualLat.trim() && manualLng.trim()) {
+        const lat = parseFloat(manualLat);
+        const lng = parseFloat(manualLng);
+        if (!isNaN(lat) && !isNaN(lng)) { finalLat = lat; finalLng = lng; }
+      }
+
       const updates: any = {
         name: name.trim(),
         gender,
         location_address: colony.trim() || null,
+        location_latitude: finalLat,
+        location_longitude: finalLng,
         feeder_phone: feederPhone.trim() || null,
         current_status: status,
         notes: notes.trim() || null,
@@ -556,6 +618,40 @@ function EditDogModal({ dog, visible, onClose, onSaved }: {
             <Text style={em.sectionLabel}>Colony / Area</Text>
             <TextInput style={em.input} value={colony} onChangeText={setColony} placeholder="e.g. Khirki Colony" placeholderTextColor={C.gray400} />
 
+            <Text style={em.sectionLabel}>Location</Text>
+            <View style={em.modeToggle}>
+              <Pressable style={[em.modeBtn, locationMode === 'gps' && em.modeBtnActive]} onPress={() => setLocationMode('gps')}>
+                <Text style={em.modeBtnText}>📍 Use GPS</Text>
+              </Pressable>
+              <Pressable style={[em.modeBtn, locationMode === 'manual' && em.modeBtnActive]} onPress={() => setLocationMode('manual')}>
+                <Text style={em.modeBtnText}>⌨️ Enter Manually</Text>
+              </Pressable>
+            </View>
+            {locationMode === 'gps' ? (
+              <>
+                {latitude !== null && longitude !== null && (
+                  <Text style={em.coordsText}>✅ {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
+                )}
+                <TouchableOpacity style={em.gpsBtn} onPress={captureLocation} disabled={locating} activeOpacity={0.85}>
+                  {locating ? <ActivityIndicator color={C.white} /> : <Text style={em.gpsBtnText}>{latitude !== null ? '🔄 Recapture Location' : '📍 Use My Current Location'}</Text>}
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={em.manualCard}>
+                <Text style={em.manualHint}>Find coordinates by long-pressing a spot on Google Maps and copying the numbers shown.</Text>
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <TextInput style={[em.input, { flex: 1 }]} placeholder="Latitude" placeholderTextColor={C.gray400} value={manualLat} onChangeText={setManualLat} keyboardType="decimal-pad" />
+                  <TextInput style={[em.input, { flex: 1 }]} placeholder="Longitude" placeholderTextColor={C.gray400} value={manualLng} onChangeText={setManualLng} keyboardType="decimal-pad" onSubmitEditing={applyManualCoords} />
+                </View>
+                <TouchableOpacity style={em.verifyBtn} onPress={applyManualCoords} activeOpacity={0.85}>
+                  <Text style={em.verifyBtnText}>✓ Verify Coordinates</Text>
+                </TouchableOpacity>
+                {latitude !== null && longitude !== null && (
+                  <Text style={em.coordsText}>✅ {latitude.toFixed(5)}, {longitude.toFixed(5)}</Text>
+                )}
+              </View>
+            )}
+
             <Text style={em.sectionLabel}>Feeder Phone</Text>
             <TextInput style={em.input} value={feederPhone} onChangeText={setFeederPhone} placeholder="98100 XXXXX" placeholderTextColor={C.gray400} keyboardType="phone-pad" />
 
@@ -601,6 +697,17 @@ const em = StyleSheet.create({
   statusLabel: { fontSize: 12, color: C.gray600 },
   saveBtnFull: { backgroundColor: C.g700, borderRadius: 10, paddingVertical: 14, alignItems: 'center', marginTop: 24 },
   saveBtnFullText: { fontSize: 14, fontWeight: '700', color: C.white },
+  modeToggle: { flexDirection: 'row', gap: 8, marginBottom: 10 },
+  modeBtn: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 9, borderRadius: 10, backgroundColor: C.gray100, borderWidth: 1.5, borderColor: C.gray200 },
+  modeBtnActive: { backgroundColor: C.g50, borderColor: C.g700 },
+  modeBtnText: { fontSize: 12, fontWeight: '600', color: C.gray600 },
+  gpsBtn: { backgroundColor: C.g700, borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
+  gpsBtnText: { fontSize: 13, fontWeight: '700', color: C.white },
+  manualCard: { backgroundColor: C.white, borderRadius: 12, borderWidth: 1, borderColor: C.gray200, padding: 12 },
+  manualHint: { fontSize: 11, color: C.gray600, lineHeight: 16, marginBottom: 10 },
+  verifyBtn: { backgroundColor: C.g50, borderWidth: 1.5, borderColor: C.g700, borderRadius: 10, paddingVertical: 9, alignItems: 'center', marginTop: 8 },
+  verifyBtnText: { fontSize: 12, fontWeight: '600', color: C.g700 },
+  coordsText: { fontSize: 11, color: C.g700, fontWeight: '600', marginTop: 8 },
 });
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
@@ -613,6 +720,7 @@ export default function DogDetailScreen() {
   const [updates, setUpdates] = useState<HealthUpdate[]>([]);
   const [records, setRecords] = useState<MedicalRecord[]>([]);
   const [reminders, setReminders] = useState<Reminder[]>([]);
+  const [dogPhotos, setDogPhotos] = useState<DogPhoto[]>([]);
   const [profilePhotoUrl, setProfilePhotoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -620,6 +728,7 @@ export default function DogDetailScreen() {
   const [showMedicalModal, setShowMedicalModal] = useState(false);
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
 
   const fetchAll = useCallback(async () => {
     if (!id) return;
@@ -629,49 +738,109 @@ export default function DogDetailScreen() {
       supabase.from('health_updates').select('*').eq('dog_id', dogId).order('update_date', { ascending: false }).limit(10),
       supabase.from('medical_records').select('*').eq('dog_id', dogId).order('date_given', { ascending: false }),
       supabase.from('reminders').select('*').eq('dog_id', dogId).eq('status', 'pending').order('due_date'),
-      supabase.from('dog_photos').select('photo_url').eq('dog_id', dogId).eq('is_profile_photo', true).single(),
+      supabase
+        .from('dog_photos')
+        .select('photo_id, dog_id, photo_url, uploaded_at, is_profile_photo')
+        .eq('dog_id', dogId)
+        .order('uploaded_at', { ascending: false }),
     ]);
     if (dogRes.data) setDog(dogRes.data);
     if (updatesRes.data) setUpdates(updatesRes.data);
     if (recordsRes.data) setRecords(recordsRes.data);
     if (remindersRes.data) setReminders(remindersRes.data);
-    setProfilePhotoUrl(photoRes.data?.photo_url ?? null);
+
+    const photos = (photoRes.data ?? []) as DogPhoto[];
+    setDogPhotos(photos);
+    const profile = photos.find((p) => p.is_profile_photo) ?? photos[0] ?? null;
+    setProfilePhotoUrl(profile?.photo_url ?? null);
   }, [id]);
 
   const uploadPhoto = async () => {
-    Alert.alert('Add Photo', 'Choose source', [
+    Alert.alert('Add Photos', 'Choose source', [
       { text: 'Camera', onPress: async () => {
         const { status } = await ImagePicker.requestCameraPermissionsAsync();
         if (status !== 'granted') { Alert.alert('Camera permission needed'); return; }
         const result = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: true, aspect: [1, 1] });
-        if (!result.canceled) await savePhoto(result.assets[0].uri);
+        if (!result.canceled) await savePhotos([result.assets[0].uri]);
       }},
       { text: 'Library', onPress: async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: true, aspect: [1, 1] });
-        if (!result.canceled) await savePhoto(result.assets[0].uri);
+        const result = await ImagePicker.launchImageLibraryAsync({
+          quality: 0.8,
+          allowsMultipleSelection: true as any,
+          selectionLimit: 0 as any,
+        });
+        if (!result.canceled) await savePhotos(result.assets.map((a) => a.uri));
       }},
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
 
-  const savePhoto = async (uri: string) => {
+  const savePhotos = async (uris: string[]) => {
+    if (!id || uris.length === 0) return;
+    const dogId = parseInt(id);
+    setUploadingPhotos(true);
+    let hasProfile = dogPhotos.some((p) => p.is_profile_photo);
+    let failCount = 0;
+    try {
+      for (let i = 0; i < uris.length; i += 1) {
+        const uri = uris[i];
+        try {
+          const ext = (uri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
+          const mimeType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+          const fileName = `dog_${dogId}_${Date.now()}_${i}.${ext}`;
+          const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
+          const { data: uploadData, error } = await supabase.storage
+            .from('dog-photos').upload(fileName, decode(base64), { contentType: mimeType });
+          if (error) throw error;
+          const { data: urlData } = supabase.storage.from('dog-photos').getPublicUrl(fileName);
+          await supabase.from('dog_photos').insert({ dog_id: dogId, photo_url: urlData.publicUrl, is_profile_photo: !hasProfile });
+          hasProfile = true;
+        } catch {
+          failCount += 1;
+        }
+      }
+      await fetchAll();
+      if (failCount > 0) {
+        Alert.alert('Some photos failed', `${failCount} of ${uris.length} photo${uris.length === 1 ? '' : 's'} could not be uploaded.`);
+      }
+    } finally {
+      setUploadingPhotos(false);
+    }
+  };
+
+  const setProfilePhoto = async (photoId: number) => {
     if (!id) return;
     const dogId = parseInt(id);
     try {
-      const ext = (uri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
-      const mimeType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
-      const fileName = `dog_${dogId}_${Date.now()}.${ext}`;
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
-      const { data: uploadData, error } = await supabase.storage
-        .from('dog-photos').upload(fileName, decode(base64), { contentType: mimeType });
-      if (error) throw error;
-      const { data: urlData } = supabase.storage.from('dog-photos').getPublicUrl(fileName);
-      // Remove old profile photo record then insert new one
-      await supabase.from('dog_photos').delete().eq('dog_id', dogId).eq('is_profile_photo', true);
-      await supabase.from('dog_photos').insert({ dog_id: dogId, photo_url: urlData.publicUrl, is_profile_photo: true });
-      setProfilePhotoUrl(urlData.publicUrl);
+      await supabase.from('dog_photos').update({ is_profile_photo: false }).eq('dog_id', dogId);
+      await supabase.from('dog_photos').update({ is_profile_photo: true }).eq('photo_id', photoId).eq('dog_id', dogId);
+      await fetchAll();
     } catch (e: any) {
-      Alert.alert('Upload failed', e.message);
+      Alert.alert('Could not set profile photo', e.message);
+    }
+  };
+
+  const deletePhoto = async (photo: DogPhoto) => {
+    if (!id) return;
+    const dogId = parseInt(id);
+    try {
+      const path = photo.photo_url.split('/dog-photos/')[1];
+      if (path) {
+        await supabase.storage.from('dog-photos').remove([path]);
+      }
+      await supabase.from('dog_photos').delete().eq('photo_id', photo.photo_id).eq('dog_id', dogId);
+
+      // Ensure there is always one profile photo when photos still exist.
+      if (photo.is_profile_photo) {
+        const remaining = dogPhotos.filter((p) => p.photo_id !== photo.photo_id);
+        if (remaining.length > 0) {
+          await supabase.from('dog_photos').update({ is_profile_photo: true }).eq('photo_id', remaining[0].photo_id).eq('dog_id', dogId);
+        }
+      }
+
+      await fetchAll();
+    } catch (e: any) {
+      Alert.alert('Could not delete photo', e.message);
     }
   };
 
@@ -714,6 +883,34 @@ export default function DogDetailScreen() {
     fetchAll();
   };
 
+  const deleteDog = () => {
+    Alert.alert(
+      `Delete ${dog?.name}?`,
+      'This will permanently delete the dog and all their records, photos, reminders and health updates. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete', style: 'destructive', onPress: async () => {
+            try {
+              // Delete profile photo from storage first
+              const { data: photos } = await supabase
+                .from('dog_photos').select('photo_url').eq('dog_id', parseInt(id!));
+              for (const photo of photos ?? []) {
+                const path = photo.photo_url.split('/dog-photos/')[1];
+                if (path) await supabase.storage.from('dog-photos').remove([path]);
+              }
+              // Delete dog record — cascades to all related tables
+              await supabase.from('dogs').delete().eq('dog_id', parseInt(id!));
+              router.back();
+            } catch (e: any) {
+              Alert.alert('Delete failed', e.message);
+            }
+          }
+        },
+      ]
+    );
+  };
+
   if (loading) return <View style={[styles.centered, { paddingTop: insets.top }]}><ActivityIndicator color={C.g700} size="large" /></View>;
   if (!dog) return <View style={[styles.centered, { paddingTop: insets.top }]}><Text style={{ color: C.gray600 }}>Dog not found</Text></View>;
 
@@ -727,9 +924,14 @@ export default function DogDetailScreen() {
           <Text style={styles.backBtnText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.topbarTitle}>{dog.name}</Text>
-        <TouchableOpacity onPress={() => setShowEditModal(true)} style={styles.editBtn}>
-          <Text style={styles.editBtnText}>Edit</Text>
-        </TouchableOpacity>
+        <View style={styles.topbarActions}>
+          <TouchableOpacity onPress={() => setShowEditModal(true)} style={styles.editBtn}>
+            <Text style={styles.editBtnText}>Edit</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={deleteDog} style={styles.deleteBtn}>
+            <Text style={styles.deleteBtnText}>🗑</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -763,8 +965,50 @@ export default function DogDetailScreen() {
 </View>
             <Text style={styles.heroSub}>{dog.location_address ?? 'Location not set'} · {formatAge(ageMonths)}</Text>
             <Text style={styles.heroFeeder}>{dog.feeder_phone ? `📞 ${dog.feeder_phone}` : 'No feeder contact'}</Text>
+            <Text style={styles.heroFeeder}>{dogPhotos.length} photo{dogPhotos.length === 1 ? '' : 's'} saved</Text>
           </View>
         </View>
+
+        <Section title="Photo Gallery" action={uploadingPhotos ? undefined : '+ Add'} onAction={uploadPhoto}>
+          {uploadingPhotos && (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={C.g700} />
+              <Text style={[styles.emptyText, { marginTop: 8 }]}>Uploading photos…</Text>
+            </View>
+          )}
+          {!uploadingPhotos && dogPhotos.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyText}>No photos yet</Text>
+              <TouchableOpacity onPress={uploadPhoto}>
+                <Text style={styles.emptyAction}>+ Add first photo</Text>
+              </TouchableOpacity>
+            </View>
+          ) : !uploadingPhotos ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoStrip}>
+              {dogPhotos.map((photo) => (
+                <View key={photo.photo_id} style={styles.photoCard}>
+                  <Image source={{ uri: photo.photo_url }} style={styles.photoThumb} />
+                  <View style={styles.photoMetaRow}>
+                    <TouchableOpacity
+                      style={[styles.photoActionBtn, photo.is_profile_photo && styles.photoActionBtnPrimary]}
+                      onPress={() => setProfilePhoto(photo.photo_id)}
+                    >
+                      <Text style={[styles.photoActionText, photo.is_profile_photo && styles.photoActionTextPrimary]}>
+                        {photo.is_profile_photo ? 'Profile' : 'Set Profile'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.photoActionBtn, styles.photoDeleteBtn]}
+                      onPress={() => deletePhoto(photo)}
+                    >
+                      <Text style={styles.photoDeleteText}>Delete</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          ) : null}
+        </Section>
 
         {/* Quick actions */}
         <View style={styles.qaRow}>
@@ -959,6 +1203,9 @@ const styles = StyleSheet.create({
   backBtnText: { fontSize: 18, color: C.gray900 },
   editBtn: { backgroundColor: C.g50, borderWidth: 1, borderColor: C.g300, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 14 },
   editBtnText: { fontSize: 12, fontWeight: '600', color: C.g700 },
+  topbarActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  deleteBtn: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.redBg, alignItems: 'center', justifyContent: 'center' },
+  deleteBtnText: { fontSize: 14 },
   scroll: { flex: 1 },
   scrollContent: { padding: 12, paddingBottom: 40 },
   hero: { flexDirection: 'row', gap: 12, backgroundColor: C.white, borderRadius: 12, borderWidth: 1, borderColor: C.gray200, padding: 14, marginBottom: 10 },
@@ -971,6 +1218,31 @@ const styles = StyleSheet.create({
   heroName: { fontSize: 20, fontWeight: '700', color: C.gray900 },
   heroSub: { fontSize: 12, color: C.gray600, marginBottom: 2 },
   heroFeeder: { fontSize: 11, color: C.gray400 },
+  photoStrip: { paddingVertical: 4, gap: 10 },
+  photoCard: {
+    width: 170,
+    backgroundColor: C.white,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.gray200,
+    padding: 8,
+  },
+  photoThumb: { width: '100%', height: 120, borderRadius: 8, backgroundColor: C.gray100 },
+  photoMetaRow: { flexDirection: 'row', gap: 6, marginTop: 8 },
+  photoActionBtn: {
+    flex: 1,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.gray200,
+    backgroundColor: C.gray100,
+    paddingVertical: 6,
+    alignItems: 'center',
+  },
+  photoActionBtnPrimary: { borderColor: C.g700, backgroundColor: C.g50 },
+  photoActionText: { fontSize: 10, fontWeight: '600', color: C.gray600 },
+  photoActionTextPrimary: { color: C.g700 },
+  photoDeleteBtn: { borderColor: C.redBorder, backgroundColor: C.redBg },
+  photoDeleteText: { fontSize: 10, fontWeight: '600', color: C.red },
   qaRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
   sterilisePrompt: { backgroundColor: C.amberBg, borderWidth: 1, borderColor: C.amberBorder, borderRadius: 10, padding: 10, alignItems: 'center', marginBottom: 12 },
   sterilisePromptText: { fontSize: 13, fontWeight: '600', color: '#92400E' },

@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, ActivityIndicator,
   Pressable, ScrollView, Image,
 } from 'react-native';
+import { Platform } from 'react-native';
 import MapView, { Marker, Callout, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -80,7 +81,7 @@ function formatAge(months: number | null): string {
 }
 
 // ── Custom map marker ─────────────────────────────────────────────────────────
-function DogMarker({ dog, onPress }: { dog: DogPin; onPress: () => void }) {
+function renderDogMarker(dog: DogPin, onPress: () => void) {
   const colours: Record<PinColour, string> = {
     red: C.red, amber: C.amber, green: C.g500, grey: C.gray400,
   };
@@ -96,6 +97,7 @@ function DogMarker({ dog, onPress }: { dog: DogPin; onPress: () => void }) {
 
   return (
     <Marker
+      key={dog.dog_id}
       coordinate={{ latitude: dog.latitude, longitude: dog.longitude }}
       onPress={onPress}
       tracksViewChanges={false}
@@ -290,44 +292,63 @@ export default function HomeScreen() {
   const [locating, setLocating] = useState(false);
 
   const fetchDogs = useCallback(async () => {
-    const today = new Date().toISOString().split('T')[0];
+    try {
+      const today = new Date().toISOString().split('T')[0];
 
-    const [dogsRes, remindersRes, photosRes, vacsRes] = await Promise.all([
-      supabase.from('dogs').select('*').not('location_latitude', 'is', null),
-      supabase.from('reminders').select('dog_id').eq('status', 'pending').lte('due_date', today),
-      supabase.from('dog_photos').select('dog_id, photo_url').eq('is_profile_photo', true),
-      supabase.from('medical_records').select('dog_id').in('event_type', ['vaccination', 'rabies']),
-    ]);
+      const [dogsRes, remindersRes, photosRes, vacsRes] = await Promise.allSettled([
+        supabase.from('dogs').select('*').not('location_latitude', 'is', null),
+        supabase.from('reminders').select('dog_id').eq('status', 'pending').lte('due_date', today),
+        supabase.from('dog_photos').select('dog_id, photo_url').eq('is_profile_photo', true),
+        supabase.from('medical_records').select('dog_id').in('event_type', ['vaccination', 'rabies']),
+      ]);
 
-    if (dogsRes.error) { console.error(dogsRes.error); return; }
+      if (dogsRes.status !== 'fulfilled' || dogsRes.value.error) {
+        console.warn('Failed to load dogs', dogsRes.status === 'fulfilled' ? dogsRes.value.error : dogsRes.reason);
+        setDogs([]);
+        return;
+      }
 
-    const overdueSet = new Set<number>((remindersRes.data ?? []).map((r: any) => r.dog_id));
-    const photoMap = new Map<number, string>((photosRes.data ?? []).map((p: any) => [p.dog_id, p.photo_url]));
-    const vacSet = new Set<number>((vacsRes.data ?? []).map((v: any) => v.dog_id));
+      const remindersData = remindersRes.status === 'fulfilled' && !remindersRes.value.error
+        ? remindersRes.value.data ?? []
+        : [];
+      const photosData = photosRes.status === 'fulfilled' && !photosRes.value.error
+        ? photosRes.value.data ?? []
+        : [];
+      const vacsData = vacsRes.status === 'fulfilled' && !vacsRes.value.error
+        ? vacsRes.value.data ?? []
+        : [];
 
-    const pins: DogPin[] = (dogsRes.data ?? [])
-      .filter((d: any) => d.location_latitude && d.location_longitude)
-      .map((d: any) => {
-        const base = {
-          dog_id: d.dog_id,
-          name: d.name,
-          latitude: d.location_latitude,
-          longitude: d.location_longitude,
-          current_status: d.current_status,
-          gender: d.gender,
-          sterilized: d.sterilized,
-          date_of_birth: d.date_of_birth,
-          approx_age_months: d.approx_age_months,
-          location_address: d.location_address,
-          profile_photo_url: photoMap.get(d.dog_id) ?? null,
-          has_overdue_reminder: overdueSet.has(d.dog_id),
-          has_vaccination: vacSet.has(d.dog_id),
-          pin_colour: 'green' as PinColour,
-        };
-        return { ...base, pin_colour: getPinColour(base) };
-      });
+      const overdueSet = new Set<number>(remindersData.map((r: any) => r.dog_id));
+      const photoMap = new Map<number, string>(photosData.map((p: any) => [p.dog_id, p.photo_url]));
+      const vacSet = new Set<number>(vacsData.map((v: any) => v.dog_id));
 
-    setDogs(pins);
+      const pins: DogPin[] = (dogsRes.value.data ?? [])
+        .filter((d: any) => d.location_latitude && d.location_longitude)
+        .map((d: any) => {
+          const base = {
+            dog_id: d.dog_id,
+            name: d.name,
+            latitude: d.location_latitude,
+            longitude: d.location_longitude,
+            current_status: d.current_status,
+            gender: d.gender,
+            sterilized: d.sterilized,
+            date_of_birth: d.date_of_birth,
+            approx_age_months: d.approx_age_months,
+            location_address: d.location_address,
+            profile_photo_url: photoMap.get(d.dog_id) ?? null,
+            has_overdue_reminder: overdueSet.has(d.dog_id),
+            has_vaccination: vacSet.has(d.dog_id),
+            pin_colour: 'green' as PinColour,
+          };
+          return { ...base, pin_colour: getPinColour(base) };
+        });
+
+      setDogs(pins);
+    } catch (error) {
+      console.warn('Failed to fetch map data', error);
+      setDogs([]);
+    }
   }, []);
 
   useFocusEffect(
@@ -378,19 +399,13 @@ export default function HomeScreen() {
           <MapView
             ref={mapRef}
             style={styles.map}
-            provider={PROVIDER_GOOGLE}
+            provider={Platform.OS === 'android' ? PROVIDER_GOOGLE : undefined}
             initialRegion={DELHI_REGION}
             showsUserLocation
             showsMyLocationButton={false}
             onPress={() => setSelectedDog(null)}
           >
-            {dogs.map(dog => (
-              <DogMarker
-                key={dog.dog_id}
-                dog={dog}
-                onPress={() => setSelectedDog(dog)}
-              />
-            ))}
+            {dogs.map((dog) => renderDogMarker(dog, () => setSelectedDog(dog)))}
           </MapView>
 
           {/* Legend */}

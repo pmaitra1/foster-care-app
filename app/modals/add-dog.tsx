@@ -7,7 +7,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import { decode } from 'base64-arraybuffer';
 import * as Location from 'expo-location';
 import { supabase } from '../../lib/supabase/client';
@@ -212,7 +212,7 @@ export default function AddDogModal() {
 
   const [step, setStep] = useState(1);
   const [saving, setSaving] = useState(false);
-  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoUris, setPhotoUris] = useState<string[]>([]);
   const [locating, setLocating] = useState(false);
   const [showFeederPicker, setShowFeederPicker] = useState(false);
 
@@ -236,12 +236,23 @@ export default function AddDogModal() {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') { Alert.alert('Camera permission needed'); return; }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.8, allowsEditing: true, aspect: [1, 1] });
-    if (!result.canceled) setPhotoUri(result.assets[0].uri);
+    if (!result.canceled) {
+      const uri = result.assets[0].uri;
+      setPhotoUris((prev) => (prev.includes(uri) ? prev : [...prev, uri]));
+    }
   };
 
   const pickFromLibrary = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.8, allowsEditing: true, aspect: [1, 1] });
-    if (!result.canceled) setPhotoUri(result.assets[0].uri);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.8,
+      allowsEditing: false,
+      allowsMultipleSelection: true as any,
+      selectionLimit: 10 as any,
+    });
+    if (!result.canceled) {
+      const uris = result.assets.map((a) => a.uri);
+      setPhotoUris((prev) => [...new Set([...prev, ...uris])]);
+    }
   };
 
   const captureLocation = async () => {
@@ -312,15 +323,22 @@ export default function AddDogModal() {
     const { data: dog, error } = await supabase.from('dogs').insert(input).select().single();
     if (error) throw error;
 
-    if (photoUri) {
-      const ext = (photoUri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
-      const mimeType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
-      const fileName = `dog_${dog.dog_id}_${Date.now()}.${ext}`;
-      const base64 = await FileSystem.readAsStringAsync(photoUri, { encoding: 'base64' as any });
-      const { data: uploadData } = await supabase.storage.from('dog-photos').upload(fileName, decode(base64), { contentType: mimeType });
-      if (uploadData) {
-        const { data: urlData } = supabase.storage.from('dog-photos').getPublicUrl(fileName);
-        await supabase.from('dog_photos').insert({ dog_id: dog.dog_id, photo_url: urlData.publicUrl, is_profile_photo: true });
+    if (photoUris.length > 0) {
+      for (let i = 0; i < photoUris.length; i += 1) {
+        const uri = photoUris[i];
+        const ext = (uri.split('.').pop()?.split('?')[0] ?? 'jpg').toLowerCase();
+        const mimeType = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`;
+        const fileName = `dog_${dog.dog_id}_${Date.now()}_${i}.${ext}`;
+        const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' as any });
+        const { data: uploadData } = await supabase.storage.from('dog-photos').upload(fileName, decode(base64), { contentType: mimeType });
+        if (uploadData) {
+          const { data: urlData } = supabase.storage.from('dog-photos').getPublicUrl(fileName);
+          await supabase.from('dog_photos').insert({
+            dog_id: dog.dog_id,
+            photo_url: urlData.publicUrl,
+            is_profile_photo: i === 0,
+          });
+        }
       }
     }
 
@@ -351,19 +369,19 @@ export default function AddDogModal() {
   const renderStep1 = () => (
     <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
       <StepIndicator current={1} total={4} />
-      <Text style={styles.stepTitle}>Add a Photo</Text>
-      <Text style={styles.stepSub}>Take a photo or choose from your library</Text>
-      {photoUri ? (
+      <Text style={styles.stepTitle}>Add Photos</Text>
+      <Text style={styles.stepSub}>Take one or more photos, or choose multiple from library</Text>
+      {photoUris.length > 0 ? (
         <View style={styles.photoPreview}>
           <Text style={{ fontSize: 64 }}>🐕</Text>
-          <Text style={styles.photoTaken}>Photo selected ✓</Text>
-          <TouchableOpacity onPress={() => setPhotoUri(null)}><Text style={styles.photoRetake}>Retake</Text></TouchableOpacity>
+          <Text style={styles.photoTaken}>{photoUris.length} photo{photoUris.length === 1 ? '' : 's'} selected ✓</Text>
+          <TouchableOpacity onPress={() => setPhotoUris([])}><Text style={styles.photoRetake}>Clear all</Text></TouchableOpacity>
         </View>
       ) : (
         <View style={styles.photoPlaceholder}>
           <Text style={{ fontSize: 40 }}>📸</Text>
-          <Text style={styles.photoHint}>Tap to take photo</Text>
-          <Text style={styles.photoHintSub}>or choose from library</Text>
+          <Text style={styles.photoHint}>Tap to take photos</Text>
+          <Text style={styles.photoHintSub}>or pick multiple from library</Text>
         </View>
       )}
       <TouchableOpacity style={styles.btnPrimary} onPress={pickFromCamera} activeOpacity={0.85}><Text style={styles.btnPrimaryText}>Open Camera</Text></TouchableOpacity>
@@ -544,7 +562,7 @@ const renderStep3 = () => {
       {step === 3 && renderStep3()}
       {step === 4 && renderStep4()}
 
-      {step === 1 && photoUri && (
+      {step === 1 && photoUris.length > 0 && (
         <View style={[styles.footer, { paddingBottom: insets.bottom || 16 }]}>
           <TouchableOpacity style={styles.btnPrimary} onPress={() => setStep(2)} activeOpacity={0.85}>
             <Text style={styles.btnPrimaryText}>Next → Basic Details</Text>

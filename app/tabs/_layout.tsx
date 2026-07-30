@@ -18,14 +18,19 @@ function TabBar({ state, descriptors, navigation }: any) {
 
   useEffect(() => {
     const fetchUrgent = async () => {
-      const today = new Date().toISOString().split('T')[0];
-      const { count } = await supabase
-        .from('reminders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'pending')
-        .lte('due_date', today);
-      setUrgentCount(count ?? 0);
-      updateBadgeCount();
+      try {
+        const today = new Date().toISOString().split('T')[0];
+        const { count } = await supabase
+          .from('reminders')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'pending')
+          .lte('due_date', today);
+        setUrgentCount(count ?? 0);
+        await updateBadgeCount();
+      } catch (error) {
+        console.warn('Failed to refresh urgent reminders:', error);
+        setUrgentCount(0);
+      }
     };
     fetchUrgent();
     const interval = setInterval(fetchUrgent, 5 * 60 * 1000);

@@ -7,7 +7,7 @@ import type {
   NewHealthUpdateInput,
   NewMedicalRecordInput,
   NewReminderInput,
-} from './index';
+} from '../../types';
 import { addMonths, addDays, formatISO } from 'date-fns';
 
 // ── Reminders ─────────────────────────────────────────────────────────────────

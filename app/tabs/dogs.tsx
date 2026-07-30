@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
   View, Text, StyleSheet, FlatList, TextInput,
   TouchableOpacity, ScrollView, ActivityIndicator,
   RefreshControl, Pressable, Image, Modal,
+  Animated, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../../lib/supabase/client';
@@ -243,39 +244,103 @@ const fs = StyleSheet.create({
   applyBtnText: { fontSize: 14, fontWeight: '700', color: C.white },
 });
 
-// ── Dog Card ──────────────────────────────────────────────────────────────────
-function DogCard({ dog, onPress }: { dog: DogRow; onPress: () => void }) {
+// ── Swipeable Dog Card ────────────────────────────────────────────────────────
+function DogCard({ dog, onPress, onDelete }: { dog: DogRow; onPress: () => void; onDelete: () => void }) {
   const badge = getStatusBadge(dog.current_status);
   const age = dog.age_months;
   const isPuppy = age !== null && age < 12;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const [swiped, setSwiped] = useState(false);
+
+  const SWIPE_THRESHOLD = -80;
+
+  const onSwipeLeft = () => {
+    Animated.spring(translateX, {
+      toValue: SWIPE_THRESHOLD,
+      useNativeDriver: true,
+      tension: 100,
+      friction: 10,
+    }).start(() => setSwiped(true));
+  };
+
+  const onReset = () => {
+    Animated.spring(translateX, {
+      toValue: 0,
+      useNativeDriver: true,
+    }).start(() => setSwiped(false));
+  };
+
+  const handleDelete = () => {
+    onReset();
+    Alert.alert(
+      `Delete ${dog.name}?`,
+      'This will permanently delete the dog and all their records. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: onDelete },
+      ]
+    );
+  };
 
   return (
-    <Pressable style={styles.dogCard} onPress={onPress} android_ripple={{ color: C.gray100 }}>
-      <View style={styles.dogAvatar}>
-        {dog.profile_photo_url
-          ? <Image source={{ uri: dog.profile_photo_url }} style={styles.dogAvatarImage} />
-          : <Text style={styles.dogAvatarEmoji}>🐕</Text>
-        }
+    <View style={sw.wrap}>
+      {/* Red delete background */}
+      <View style={sw.deleteBackground}>
+        <TouchableOpacity style={sw.deleteBtn} onPress={handleDelete}>
+          <Text style={sw.deleteIcon}>🗑</Text>
+          <Text style={sw.deleteLabel}>Delete</Text>
+        </TouchableOpacity>
       </View>
-      <View style={styles.dogInfo}>
-        <Text style={styles.dogName}>{dog.name}</Text>
-        <Text style={styles.dogColony}>{dog.location_address ?? 'Location not set'} · {formatAge(age)}</Text>
-        {dog.feeder_name && <Text style={styles.dogFeeder}>👤 {dog.feeder_name}</Text>}
-        <View style={styles.dogMeta}>
-          {isPuppy && (
-            <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
-              <Text style={[styles.badgeText, { color: '#92400E' }]}>🐶 Puppy</Text>
-            </View>
-          )}
-          <View style={[styles.badge, { backgroundColor: badge.bg }]}>
-            <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
+
+      {/* Swipeable card */}
+      <Animated.View style={{ transform: [{ translateX }] }}>
+        <Pressable
+          style={styles.dogCard}
+          onPress={() => { if (swiped) { onReset(); } else { onPress(); } }}
+          onLongPress={onSwipeLeft}
+          delayLongPress={200}
+          android_ripple={{ color: C.gray100 }}
+        >
+          {/* Swipe hint arrow when not swiped */}
+          <View style={styles.dogAvatar}>
+            {dog.profile_photo_url
+              ? <Image source={{ uri: dog.profile_photo_url }} style={styles.dogAvatarImage} />
+              : <Text style={styles.dogAvatarEmoji}>🐕</Text>
+            }
           </View>
-        </View>
-      </View>
-      <Text style={styles.chevron}>›</Text>
-    </Pressable>
+          <View style={styles.dogInfo}>
+            <Text style={styles.dogName}>{dog.name}</Text>
+            <Text style={styles.dogColony}>{dog.location_address ?? 'Location not set'} · {formatAge(age)}</Text>
+            {dog.feeder_name && <Text style={styles.dogFeeder}>👤 {dog.feeder_name}</Text>}
+            <View style={styles.dogMeta}>
+              {isPuppy && (
+                <View style={[styles.badge, { backgroundColor: '#FEF3C7' }]}>
+                  <Text style={[styles.badgeText, { color: '#92400E' }]}>🐶 Puppy</Text>
+                </View>
+              )}
+              <View style={[styles.badge, { backgroundColor: badge.bg }]}>
+                <Text style={[styles.badgeText, { color: badge.text }]}>{badge.label}</Text>
+              </View>
+            </View>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+      </Animated.View>
+    </View>
   );
 }
+
+const sw = StyleSheet.create({
+  wrap: { position: 'relative' },
+  deleteBackground: {
+    position: 'absolute', right: 0, top: 0, bottom: 0,
+    width: 80, backgroundColor: C.red,
+    borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+  },
+  deleteBtn: { alignItems: 'center', justifyContent: 'center', flex: 1, width: '100%' },
+  deleteIcon: { fontSize: 20 },
+  deleteLabel: { fontSize: 10, fontWeight: '700', color: C.white, marginTop: 2 },
+});
 
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export default function DogsScreen() {
@@ -293,34 +358,51 @@ export default function DogsScreen() {
   const [vaccinatedIds, setVaccinatedIds] = useState<Set<number>>(new Set());
 
   const fetchDogs = useCallback(async () => {
-    const [dogsRes, feedersRes, vacsRes] = await Promise.all([
-      supabase.from('dogs').select('*, dog_photos(photo_url, is_profile_photo), feeders(name)').order('name'),
-      supabase.from('feeders').select('feeder_id, name').order('name'),
-      supabase.from('medical_records').select('dog_id').in('event_type', ['vaccination', 'rabies']),
-    ]);
+    try {
+      const [dogsRes, feedersRes, vacsRes] = await Promise.all([
+        supabase.from('dogs').select('*, dog_photos(photo_url, is_profile_photo)').order('name'),
+        supabase.from('feeders').select('feeder_id, name').order('name'),
+        supabase.from('medical_records').select('dog_id').in('event_type', ['vaccination', 'rabies']),
+      ]);
 
-    if (dogsRes.error) { console.error(dogsRes.error); return; }
+      if (dogsRes.error) {
+        console.warn('Failed to load dogs query', dogsRes.error);
+        return;
+      }
 
-    // Build vaccinated set
-    const vacIds = new Set<number>((vacsRes.data ?? []).map((v: any) => v.dog_id));
-    setVaccinatedIds(vacIds);
+      if (feedersRes.error) {
+        console.warn('Failed to load feeders query', feedersRes.error);
+      }
 
-    const mapped: DogRow[] = (dogsRes.data ?? []).map((d: any) => ({
-      ...d,
-      profile_photo_url: d.dog_photos?.find((p: any) => p.is_profile_photo)?.photo_url ?? null,
-      age_months: getAgeMonths(d),
-      feeder_name: d.feeders?.name ?? null,
-      feeder_id_val: d.feeder_id ?? null,
-      has_recent_vaccination: vacIds.has(d.dog_id),
-    }));
+      if (vacsRes.error) {
+        console.warn('Failed to load vaccination records query', vacsRes.error);
+      }
 
-    setDogs(mapped);
+      const feederNameById = new Map<number, string>((feedersRes.data ?? []).map((f: any) => [f.feeder_id, f.name]));
 
-    // Extract unique locations for quick-select chips
-    const locs = [...new Set(mapped.map(d => d.location_address).filter(Boolean))] as string[];
-    setLocations(locs.slice(0, 8));
+      // Build vaccinated set
+      const vacIds = new Set<number>((vacsRes.data ?? []).map((v: any) => v.dog_id));
+      setVaccinatedIds(vacIds);
 
-    setFeeders(feedersRes.data ?? []);
+      const mapped: DogRow[] = (dogsRes.data ?? []).map((d: any) => ({
+        ...d,
+        profile_photo_url: d.dog_photos?.find((p: any) => p.is_profile_photo)?.photo_url ?? null,
+        age_months: getAgeMonths(d),
+        feeder_name: d.feeder_id ? (feederNameById.get(d.feeder_id) ?? null) : null,
+        feeder_id_val: d.feeder_id ?? null,
+        has_recent_vaccination: vacIds.has(d.dog_id),
+      }));
+
+      setDogs(mapped);
+
+      // Extract unique locations for quick-select chips
+      const locs = [...new Set(mapped.map(d => d.location_address).filter(Boolean))] as string[];
+      setLocations(locs.slice(0, 8));
+
+      setFeeders(feedersRes.data ?? []);
+    } catch (err: any) {
+      console.warn('Failed to load dogs', err?.message ?? err);
+    }
   }, []);
 
   useFocusEffect(
@@ -334,6 +416,21 @@ export default function DogsScreen() {
     await fetchDogs();
     setRefreshing(false);
   }, [fetchDogs]);
+
+  const deleteDog = async (dog: DogRow) => {
+    try {
+      const { data: photos } = await supabase
+        .from('dog_photos').select('photo_url').eq('dog_id', dog.dog_id);
+      for (const photo of photos ?? []) {
+        const path = photo.photo_url.split('/dog-photos/')[1];
+        if (path) await supabase.storage.from('dog-photos').remove([path]);
+      }
+      await supabase.from('dogs').delete().eq('dog_id', dog.dog_id);
+      await fetchDogs();
+    } catch (e: any) {
+      Alert.alert('Delete failed', e.message);
+    }
+  };
 
   // ── Apply filters ─────────────────────────────────────────────────────────
   const filtered = dogs.filter(d => {
@@ -473,7 +570,7 @@ export default function DogsScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <DogCard dog={item} onPress={() => router.push(`/dog/${item.dog_id}`)} />
+            <DogCard dog={item} onPress={() => router.push(`/dog/${item.dog_id}`)} onDelete={() => deleteDog(item)} />
           )}
           contentContainerStyle={styles.list}
           ItemSeparatorComponent={() => <View style={{ height: 8 }} />}

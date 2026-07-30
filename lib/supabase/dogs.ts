@@ -6,7 +6,7 @@ import type {
   AnimalCategory,
   MapPinColour,
   CurrentStatus,
-} from './index';
+} from '../../types';
 import { differenceInMonths, parseISO } from 'date-fns';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
